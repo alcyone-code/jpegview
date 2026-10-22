@@ -3,6 +3,9 @@
 /////////////////////////////////////////////////////////////////////////////
 
 #include "stdafx.h"
+#include <dwmapi.h>
+
+#pragma comment(lib, "Dwmapi.lib")
 #include "resource.h"
 #include <math.h>
 #include <limits.h>
@@ -813,9 +816,16 @@ LRESULT CMainDlg::OnLButtonUp(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, B
 LRESULT CMainDlg::OnNCHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled) {
 	bool bAlt = (::GetKeyState(VK_MENU) & 0x8000) != 0;
 	bool bLButton = ::GetAsyncKeyState(MK_LBUTTON) < 0;
+	CPoint point(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+	::ScreenToClient(m_hWnd, &point);
+	bool bOverInteractivePanel = m_pPanelMgr != NULL && m_pPanelMgr->IsPointInVisiblePanel(point);
+	bOverInteractivePanel = bOverInteractivePanel ||
+		(m_pZoomNavigatorCtl != NULL && m_pZoomNavigatorCtl->IsPointInZoomNavigatorThumbnail(point));
 
 	// Move the window with a plain left-button drag; Alt+left-click is reserved for cropping.
-	if (!m_bFullScreenMode && !bAlt && ::DefWindowProc(m_hWnd, uMsg, wParam, lParam) == HTCLIENT && bLButton) {
+	// Let panels and the zoom navigator receive their own clicks.
+	if (!m_bFullScreenMode && !bAlt && !bOverInteractivePanel &&
+		::DefWindowProc(m_hWnd, uMsg, wParam, lParam) == HTCLIENT && bLButton) {
 		// don't allow intercepting if we're in full screen mode
 		// (which is really just the window repositioned so the titlebar falls off the screen)
 		return HTCAPTION;
@@ -2118,9 +2128,76 @@ LONG CMainDlg::SetCurrentWindowStyle() {
 	if (!m_bWindowBorderless) {
 		return this->SetWindowLongW(GWL_STYLE, this->GetWindowLongW(GWL_STYLE) | WS_OVERLAPPEDWINDOW | WS_VISIBLE);
 	} else {
-		return this->SetWindowLongW(GWL_STYLE, this->GetWindowLongW(GWL_STYLE) & ~WS_OVERLAPPEDWINDOW | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_VISIBLE);  // lose resizing
-		// just doing (& ~WS_CAPTION) leads to having a sliver of white bar on top but allows for resizing
+		// Keep a thin resize frame and border while removing the title bar.
+		DWORD style = this->GetWindowLongW(GWL_STYLE);
+		style &= ~WS_CAPTION;
+		style |= WS_BORDER | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | WS_VISIBLE;
+		LONG result = this->SetWindowLongW(GWL_STYLE, style);
+		// Windows' default non-client frame can be bright (especially along the top).
+		// Set the DWM frame to a dark color so the slim rim is consistent on every side.
+		const COLORREF darkRim = RGB(36, 36, 36);
+		const DWORD dwmBorderColorAttribute = 34; // DWMWA_BORDER_COLOR (Windows 11)
+		::DwmSetWindowAttribute(m_hWnd, dwmBorderColorAttribute, &darkRim, sizeof(darkRim));
+		const BOOL useDarkFrame = TRUE;
+		const DWORD dwmDarkModeAttribute = 20; // DWMWA_USE_IMMERSIVE_DARK_MODE
+		::DwmSetWindowAttribute(m_hWnd, dwmDarkModeAttribute, &useDarkFrame, sizeof(useDarkFrame));
+		return result;
 	}
+}
+
+LRESULT CMainDlg::OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled) {
+	if (!m_bWindowBorderless) {
+		bHandled = FALSE;
+		return 0;
+	}
+
+	// Keep a slim top rim and slightly wider side/bottom rims around the image.
+	LRESULT result = ::DefWindowProc(m_hWnd, uMsg, wParam, lParam);
+	RECT* client = wParam ? &reinterpret_cast<NCCALCSIZE_PARAMS*>(lParam)->rgrc[0] : reinterpret_cast<RECT*>(lParam);
+	const int topRimWidth = 4;
+	const int otherRimWidth = 7;
+	client->left += otherRimWidth;
+	client->top += topRimWidth;
+	client->right -= otherRimWidth;
+	client->bottom -= otherRimWidth;
+	bHandled = TRUE;
+	return result;
+}
+
+LRESULT CMainDlg::OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled) {
+	if (!m_bWindowBorderless) {
+		bHandled = FALSE;
+		return 0;
+	}
+
+	LRESULT result = ::DefWindowProc(m_hWnd, uMsg, wParam, lParam);
+	HDC hdc = ::GetWindowDC(m_hWnd);
+	if (hdc != NULL) {
+		RECT windowRect, clientRect;
+		::GetWindowRect(m_hWnd, &windowRect);
+		const int windowWidth = windowRect.right - windowRect.left;
+		const int windowHeight = windowRect.bottom - windowRect.top;
+		::GetClientRect(m_hWnd, &clientRect);
+		::MapWindowPoints(m_hWnd, HWND_DESKTOP, reinterpret_cast<POINT*>(&clientRect), 2);
+		::OffsetRect(&clientRect, -windowRect.left, -windowRect.top);
+		// GetWindowDC is origin-aligned to the outer window rectangle.
+		RECT outerRect = { 0, 0, windowWidth, windowHeight };
+		HBRUSH brush = ::CreateSolidBrush(RGB(36, 36, 36));
+		if (brush != NULL) {
+			RECT band = { outerRect.left, outerRect.top, outerRect.right, clientRect.top };
+			::FillRect(hdc, &band, brush);
+			band = { outerRect.left, clientRect.bottom, outerRect.right, outerRect.bottom };
+			::FillRect(hdc, &band, brush);
+			band = { outerRect.left, clientRect.top, clientRect.left, clientRect.bottom };
+			::FillRect(hdc, &band, brush);
+			band = { clientRect.right, clientRect.top, outerRect.right, clientRect.bottom };
+			::FillRect(hdc, &band, brush);
+			::DeleteObject(brush);
+		}
+		::ReleaseDC(m_hWnd, hdc);
+	}
+	bHandled = TRUE;
+	return result;
 }
 
 
@@ -2808,7 +2885,7 @@ CProcessParams CMainDlg::CreateProcessParams(bool bNoProcessingAfterLoad) {
 	}
 	Helpers::EAutoZoomMode eAutoZoomMode = GetAutoZoomMode();
 	if (IsAdjustWindowToImage() && !bNoProcessingAfterLoad) {
-		CSize maxClientSize = Helpers::GetMaxClientSize(m_hWnd);
+		CSize maxClientSize = Helpers::GetMaxClientSize(m_hWnd, m_bWindowBorderless);
 		nClientWidth = maxClientSize.cx;
 		nClientHeight = maxClientSize.cy;
 		eAutoZoomMode = Helpers::ZM_FitToScreenNoZoom;
@@ -3067,7 +3144,7 @@ void CMainDlg::AdjustWindowToImage(bool bAfterStartup) {
 
 void CMainDlg::CheckIfApplyAutoFitWndToImage(bool bInInitDialog) {
 	if (CSettingsProvider::This().AutoFullScreen()) {
-		if (!Helpers::CanDisplayImageWithoutResize(m_hWnd, m_pCurrentImage)) {
+		if (!Helpers::CanDisplayImageWithoutResize(m_hWnd, m_pCurrentImage, m_bWindowBorderless)) {
 			if (!bInInitDialog) {
 				ExecuteCommand(IDM_FULL_SCREEN_MODE);
 			}

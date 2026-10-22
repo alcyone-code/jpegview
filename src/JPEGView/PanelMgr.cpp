@@ -79,6 +79,16 @@ bool CPanelMgr::OnMouseLButton(EMouseEvent eMouseEvent, int nX, int nY) {
 	return false;
 }
 
+bool CPanelMgr::IsPointInVisiblePanel(const CPoint& point) {
+	std::list<CPanelController*>::const_iterator iter;
+	for (iter = m_panelControllers.begin(); iter != m_panelControllers.end(); iter++) {
+		if ((*iter)->IsVisible() && (*iter)->PanelRect().PtInRect(point)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 bool CPanelMgr::OnMouseMove(int nX, int nY) {
 	if (m_pCapturedPanelController != NULL && m_pCapturedPanelController->IsActive()) {
 		if (m_pCapturedPanelController->OnMouseMove(nX, nY)) {

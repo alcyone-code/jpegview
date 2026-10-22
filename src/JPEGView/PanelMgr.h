@@ -34,6 +34,7 @@ public:
 	// Called by main dialog -> events routed to managed panels
 	// Returning bool means that a panel has consumed the event
 	bool OnMouseLButton(EMouseEvent eMouseEvent, int nX, int nY);
+	bool IsPointInVisiblePanel(const CPoint& point);
 	bool OnMouseMove(int nX, int nY);
 	bool MouseCursorCaptured();
 	bool OnKeyDown(unsigned int nVirtualKey, bool bShift, bool bAlt, bool bCtrl);

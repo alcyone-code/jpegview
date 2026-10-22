@@ -550,6 +550,19 @@ CSize GetTotalBorderSize() {
 	return CSize(nBorderWidth, nBorderHeight);
 }
 
+CSize GetBorderlessFrameSize(HWND hWnd) {
+	CRect rect(0, 0, 0, 0);
+	DWORD style = WS_BORDER | WS_THICKFRAME | WS_MINIMIZEBOX | WS_MAXIMIZEBOX;
+	DWORD exStyle = (DWORD)::GetWindowLongPtr(hWnd, GWL_EXSTYLE);
+	::AdjustWindowRectEx(&rect, style, FALSE, exStyle);
+	// The custom dark rim is 7 px on the sides/bottom and 4 px on top.
+	return CSize(rect.Width() + 14, rect.Height() + 11);
+}
+
+CSize GetFrameSize(HWND hWnd, bool bWindowBorderless) {
+	return bWindowBorderless ? GetBorderlessFrameSize(hWnd) : GetTotalBorderSize();
+}
+
 CRect GetWindowRectMatchingImageSize(HWND hWnd, CSize minSize, CSize maxSize, double& dZoom, CJPEGImage* pImage, bool bForceCenterWindow, bool bKeepAspectRatio, bool bWindowBorderless) {
 	int nOrigWidth = (pImage == NULL) ? ::GetSystemMetrics(SM_CXSCREEN) / 2 : pImage->OrigWidth();
 	int nOrigWidthUnzoomed = nOrigWidth;
@@ -579,12 +592,7 @@ CRect GetWindowRectMatchingImageSize(HWND hWnd, CSize minSize, CSize maxSize, do
 		nOrigHeight = (int)(nOrigHeight * dZoom + 0.5);
 	}
 
-	CSize borderSize;
-	if (!bWindowBorderless) {
-		borderSize = GetTotalBorderSize();
-	} else {
-		borderSize = { 0, 0 };
-	}
+	CSize borderSize = GetFrameSize(hWnd, bWindowBorderless);
 
 	int nRequiredWidth = borderSize.cx + nOrigWidth;
 	int nRequiredHeight = borderSize.cy + nOrigHeight;
@@ -618,12 +626,12 @@ CRect GetWindowRectMatchingImageSize(HWND hWnd, CSize minSize, CSize maxSize, do
 	}
 }
 
-bool CanDisplayImageWithoutResize(HWND hWnd, CJPEGImage* pImage) {
+bool CanDisplayImageWithoutResize(HWND hWnd, CJPEGImage* pImage, bool bWindowBorderless) {
 	if (pImage == NULL) {
 		return true;
 	}
 	CRect workingArea = CMultiMonitorSupport::GetWorkingRect(hWnd);
-	CSize borderSize = GetTotalBorderSize();
+	CSize borderSize = GetFrameSize(hWnd, bWindowBorderless);
 	return pImage->OrigWidth() + borderSize.cx <= workingArea.Width() && pImage->OrigHeight() + borderSize.cy <= workingArea.Height();
 }
 
@@ -655,9 +663,9 @@ CRect CalculateMaxIncludedRectKeepAR(const CTrapezoid& trapezoid, double dAspect
 	}
 }
 
-CSize GetMaxClientSize(HWND hWnd) {
+CSize GetMaxClientSize(HWND hWnd, bool bWindowBorderless) {
 	CRect workingArea = CMultiMonitorSupport::GetWorkingRect(hWnd);
-	CSize borderSize = GetTotalBorderSize();
+	CSize borderSize = GetFrameSize(hWnd, bWindowBorderless);
 	return CSize(workingArea.Width() - borderSize.cx, workingArea.Height() - borderSize.cy);
 }
 
