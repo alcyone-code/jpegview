@@ -3463,6 +3463,9 @@ void CMainDlg::AnimateTransition() {
 }
 
 void CMainDlg::CleanupAndTerminate() {
+	// Capture the final window rectangle for sticky-size persistence even when
+	// termination is initiated by a command and bypasses WM_CLOSE.
+	GetWindowRect(m_windowRectOnClose);
 	StopMovieMode();
 	StopAnimation();
 	delete m_pJPEGProvider; // delete this early to properly shut down the loading threads
