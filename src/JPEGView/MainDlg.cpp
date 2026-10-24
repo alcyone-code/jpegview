@@ -199,7 +199,6 @@ CMainDlg::CMainDlg(bool bForceFullScreen) {
 	m_bCurrentImageIsSpecialProcessing = false;
 	m_dCurrentInitialLightenShadows = -1;
 
-	m_bDefaultSelectionMode = sp.DefaultSelectionMode();
 	m_bShowFileName = sp.ShowFileName();
 	m_bKeepParams = sp.KeepParams();
 	m_eAutoZoomModeWindowed = sp.AutoZoomMode();
@@ -788,8 +787,7 @@ LRESULT CMainDlg::OnLButtonDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam,
 				m_bZoomMode = true;
 				m_dStartZoom = m_dZoom;
 				m_nCapturedX = m_nMouseX; m_nCapturedY = m_nMouseY;
-			} else if ((bAlt || bCtrl || bHandleByCropping || (!bDraggingRequired && m_bDefaultSelectionMode)) && !bTransformPanelShown) {
-				// always go into selection/crop when in the right state and CTRL held down, otherwise it depends on the DefaultSelectionMode setting
+			} else if ((bAlt || bCtrl || bHandleByCropping) && !bTransformPanelShown) {
 				m_bSelectZoom = bShift;  // if shift, go into select-to-zoom mode (no crop popup)
 				m_pCropCtl->StartCropping(pointClicked.x, pointClicked.y);
 			} else if (bDraggingRequired && !bTransformPanelShown) {

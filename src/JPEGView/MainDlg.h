@@ -292,7 +292,6 @@ private:
 	CPoint m_DIBOffsets;
 	int m_nCapturedX, m_nCapturedY;
 	int m_nMouseX, m_nMouseY;
-	bool m_bDefaultSelectionMode;
 	bool m_bShowFileName;
 	bool m_bFullScreenMode;
 	bool m_bAutoFitWndToImage;

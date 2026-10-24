@@ -234,7 +234,6 @@ ExchangeXButtons=true
 
 ; By default, Left-click and drag enables selection mode whenever pan is not available.  CTRL+Left-click and drag enables selection mode when zoomed in.
 ; Set this to false to only use selection mode when CTRL is pressed
-DefaultSelectionMode=true
 
 ; Zoom speed with mouse wheel, 1.0 means default speed, smaller values slower zoom, larger faster zoom
 MouseWheelZoomSpeed=1.0
