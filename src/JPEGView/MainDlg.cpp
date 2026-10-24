@@ -787,7 +787,7 @@ LRESULT CMainDlg::OnLButtonDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam,
 				m_bZoomMode = true;
 				m_dStartZoom = m_dZoom;
 				m_nCapturedX = m_nMouseX; m_nCapturedY = m_nMouseY;
-			} else if ((bAlt || bCtrl || bHandleByCropping) && !bTransformPanelShown) {
+			} else if ((bCtrl || bHandleByCropping) && !bTransformPanelShown) {
 				m_bSelectZoom = bShift;  // if shift, go into select-to-zoom mode (no crop popup)
 				m_pCropCtl->StartCropping(pointClicked.x, pointClicked.y);
 			} else if (bDraggingRequired && !bTransformPanelShown) {
@@ -2169,7 +2169,7 @@ LONG CMainDlg::SetCurrentWindowStyle() {
 }
 
 LRESULT CMainDlg::OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled) {
-	if (!m_bWindowBorderless) {
+	if (!m_bWindowBorderless || m_bFullScreenMode) {
 		bHandled = FALSE;
 		return 0;
 	}
@@ -2188,7 +2188,7 @@ LRESULT CMainDlg::OnNcCalcSize(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bH
 }
 
 LRESULT CMainDlg::OnNcPaint(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled) {
-	if (!m_bWindowBorderless) {
+	if (!m_bWindowBorderless || m_bFullScreenMode) {
 		bHandled = FALSE;
 		return 0;
 	}
