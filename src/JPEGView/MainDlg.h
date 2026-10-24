@@ -280,6 +280,9 @@ private:
 
 	bool m_bDragging;
 	bool m_bDoDragging;
+	bool m_bWindowMoveCandidate;
+	bool m_bReplayingWindowMoveClick;
+	CPoint m_windowMoveStart;
 	bool m_bMovieMode;
 	double m_dMovieFPS;
 	bool m_bProcFlagsTouched;

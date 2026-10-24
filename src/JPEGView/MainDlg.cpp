@@ -239,6 +239,9 @@ CMainDlg::CMainDlg(bool bForceFullScreen) {
 	m_dZoomMult = -1.0;
 	m_bDragging = false;
 	m_bDoDragging = false;
+	m_bWindowMoveCandidate = false;
+	m_bReplayingWindowMoveClick = false;
+	m_windowMoveStart = CPoint(0, 0);
 	m_offsets = CPoint(0, 0);
 	m_DIBOffsets = CPoint(0, 0);
 	m_nCapturedX = m_nCapturedY = 0;
@@ -751,18 +754,31 @@ LRESULT CMainDlg::OnClose(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL&
 
 LRESULT CMainDlg::OnLButtonDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/) {
 	this->SetCapture();
-	bool isCropping = m_pCropCtl->IsCropping();
 	CPoint pointClicked(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+	bool bAlt = (::GetKeyState(VK_MENU) & 0x8000) != 0;
+	bool bCtrl = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
+	bool bShift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
+	bool bOverInteractivePanel = m_pPanelMgr->IsPointInVisiblePanel(pointClicked);
+	bOverInteractivePanel = bOverInteractivePanel ||
+		m_pZoomNavigatorCtl->IsPointInZoomNavigatorThumbnail(pointClicked);
+	bool bMappedMouseButton = m_pKeyMap->GetCommandIdForKey(VK_LBUTTON, bAlt, bCtrl, bShift) > 0;
+	bool bTransformPanelShown = m_pRotationPanelCtl->IsVisible() || m_pTiltCorrectionPanelCtl->IsVisible();
+	bool bCropHandle = m_pCropCtl->HitHandle(pointClicked.x, pointClicked.y) != CCropCtl::HH_None;
+
+	if (!m_bReplayingWindowMoveClick && !m_bFullScreenMode && !bAlt && !bCtrl && !bShift &&
+		!m_bZoomModeOnLeftMouse && !m_pCropCtl->IsCropping() && !bCropHandle && !bOverInteractivePanel &&
+		!bMappedMouseButton && !bTransformPanelShown) {
+		m_bWindowMoveCandidate = true;
+		m_windowMoveStart = pointClicked;
+		return 0;
+	}
+
+	bool isCropping = m_pCropCtl->IsCropping();
 	bool bEatenByPanel = isCropping ? false : m_pPanelMgr->OnMouseLButton(MouseEvent_BtnDown, pointClicked.x, pointClicked.y);
 
 	if (!bEatenByPanel) {
-		bool bCtrl = (::GetKeyState(VK_CONTROL) & 0x8000) != 0;
-		bool bShift = (::GetKeyState(VK_SHIFT) & 0x8000) != 0;
-		bool bAlt = (::GetKeyState(VK_MENU) & 0x8000) != 0;
-
 		bool bDraggingRequired = m_virtualImageSize.cx > m_clientRect.Width() || m_virtualImageSize.cy > m_clientRect.Height();
 		bool bHandleByCropping = isCropping || m_pCropCtl->HitHandle(pointClicked.x, pointClicked.y) != CCropCtl::HH_None;
-		bool bTransformPanelShown = m_pRotationPanelCtl->IsVisible() || m_pTiltCorrectionPanelCtl->IsVisible();
 		if (bHandleByCropping || !m_pZoomNavigatorCtl->OnMouseLButton(MouseEvent_BtnDown, pointClicked.x, pointClicked.y)) {
 			if (!bAlt && !m_bZoomModeOnLeftMouse && !bHandleByCropping && HandleMouseButtonByKeymap(VK_LBUTTON)) {
 				return 0;
@@ -788,6 +804,20 @@ LRESULT CMainDlg::OnLButtonDown(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam,
 }
 
 LRESULT CMainDlg::OnLButtonUp(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/) {
+	if (m_bWindowMoveCandidate) {
+		m_bWindowMoveCandidate = false;
+		m_bReplayingWindowMoveClick = true;
+		BOOL bHandled = FALSE;
+		LPARAM downPosition = MAKELPARAM(m_windowMoveStart.x, m_windowMoveStart.y);
+		OnLButtonDown(WM_LBUTTONDOWN, MK_LBUTTON, downPosition, bHandled);
+		if (GET_X_LPARAM(lParam) != m_windowMoveStart.x || GET_Y_LPARAM(lParam) != m_windowMoveStart.y) {
+			OnMouseMove(WM_MOUSEMOVE, MK_LBUTTON, lParam, bHandled);
+		}
+		OnLButtonUp(WM_LBUTTONUP, 0, lParam, bHandled);
+		m_bReplayingWindowMoveClick = false;
+		return 0;
+	}
+
 	if (m_bZoomMode) {
 		m_bZoomMode = false;
 		AdjustWindowToImage(false);
@@ -811,27 +841,8 @@ LRESULT CMainDlg::OnLButtonUp(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, B
 }
 
 
-// based on https://www.codeproject.com/Articles/18400/How-to-move-a-dialog-which-does-not-have-a-caption
-// https://learn.microsoft.com/en-us/windows/win32/inputdev/wm-nchittest
-LRESULT CMainDlg::OnNCHitTest(UINT uMsg, WPARAM wParam, LPARAM lParam, BOOL& bHandled) {
-	bool bAlt = (::GetKeyState(VK_MENU) & 0x8000) != 0;
-	bool bLButton = ::GetAsyncKeyState(MK_LBUTTON) < 0;
-	CPoint point(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
-	::ScreenToClient(m_hWnd, &point);
-	bool bOverInteractivePanel = m_pPanelMgr != NULL && m_pPanelMgr->IsPointInVisiblePanel(point);
-	bOverInteractivePanel = bOverInteractivePanel ||
-		(m_pZoomNavigatorCtl != NULL && m_pZoomNavigatorCtl->IsPointInZoomNavigatorThumbnail(point));
-
-	// Move the window with a plain left-button drag; Alt+left-click is reserved for cropping.
-	// Let panels and the zoom navigator receive their own clicks.
-	if (!m_bFullScreenMode && !bAlt && !bOverInteractivePanel &&
-		::DefWindowProc(m_hWnd, uMsg, wParam, lParam) == HTCLIENT && bLButton) {
-		// don't allow intercepting if we're in full screen mode
-		// (which is really just the window repositioned so the titlebar falls off the screen)
-		return HTCAPTION;
-	}
-
-	bHandled = FALSE;  // if not moving window, considered unhandled, or else all the mouse button code stops working
+LRESULT CMainDlg::OnNCHitTest(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled) {
+	bHandled = FALSE;
 	return 0;
 }
 
@@ -909,6 +920,20 @@ LRESULT CMainDlg::OnMouseMove(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, B
 	int nOldMouseX = m_nMouseX;
 	m_nMouseX = GET_X_LPARAM(lParam);
 	m_nMouseY = GET_Y_LPARAM(lParam);
+	if (m_bWindowMoveCandidate) {
+		int nDragWidth = ::GetSystemMetrics(SM_CXDRAG);
+		int nDragHeight = ::GetSystemMetrics(SM_CYDRAG);
+		if (abs(m_nMouseX - m_windowMoveStart.x) >= nDragWidth ||
+			abs(m_nMouseY - m_windowMoveStart.y) >= nDragHeight) {
+			CPoint screenPoint(m_nMouseX, m_nMouseY);
+			::ClientToScreen(m_hWnd, &screenPoint);
+			m_bWindowMoveCandidate = false;
+			::ReleaseCapture();
+			::SendMessage(m_hWnd, WM_NCLBUTTONDOWN, HTCAPTION, MAKELPARAM(screenPoint.x, screenPoint.y));
+			return 0;
+		}
+		return 0;
+	}
 	if (!m_bDragging) {
 		if (m_startMouse.x == -1 && m_startMouse.y == -1) {
 			m_startMouse.x = m_nMouseX;
