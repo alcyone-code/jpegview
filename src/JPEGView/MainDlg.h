@@ -389,6 +389,7 @@ private:
 	void InvalidateHelpDlg();
 	bool CloseHelpDlg();
 	LONG SetCurrentWindowStyle();
+	void ApplyTitleBarTheme();
 	// this is for animated GIFs
 	void StartAnimation();
 	void AdjustAnimationFrameTime();

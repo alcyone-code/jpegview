@@ -54,12 +54,27 @@
 #include "DesktopWallpaper.h"
 #include "PrintImage.h"
 
+#include <dwmapi.h>
+#pragma comment(lib, "dwmapi.lib")
+
 //////////////////////////////////////////////////////////////////////////////////////////////
 // Constants
 //////////////////////////////////////////////////////////////////////////////////////////////
 
 static const int MIN_WND_WIDTH = 320;
 static const int MIN_WND_HEIGHT = 240;
+
+// DWM window attributes for theming the standard title bar. The names are prefixed to avoid
+// a clash with the enum values of the Windows SDK, which may not define all of them.
+static const DWORD DWM_ATTR_USE_IMMERSIVE_DARK_MODE_OLD = 19; // Windows 10 1809 only
+static const DWORD DWM_ATTR_USE_IMMERSIVE_DARK_MODE = 20;     // Windows 10 1903 and later
+static const DWORD DWM_ATTR_BORDER_COLOR = 34;                // Windows 11 only
+static const DWORD DWM_ATTR_CAPTION_COLOR = 35;               // Windows 11 only
+static const DWORD DWM_ATTR_TEXT_COLOR = 36;                  // Windows 11 only
+
+static double GetColorLuminance(COLORREF color) {
+	return (0.299 * GetRValue(color) + 0.587 * GetGValue(color) + 0.114 * GetBValue(color)) / 255.0;
+}
 
 static const int WINDOW_RESIZE_LEFT = 1;
 static const int WINDOW_RESIZE_TOP = 2;
@@ -1459,13 +1474,11 @@ LRESULT CMainDlg::OnCtlColorEdit(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/
 	return (LRESULT)::GetStockObject(BLACK_BRUSH);
 }
 
-LRESULT CMainDlg::OnEraseBackground(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOOL& bHandled) {
-	CDC dc((HDC)wParam);
-	CRect clientRect;
-	GetClientRect(&clientRect);
-	CBrush backBrush;
-	backBrush.CreateSolidBrush(CSettingsProvider::This().ColorBackground());
-	dc.FillRect(&clientRect, backBrush);
+LRESULT CMainDlg::OnEraseBackground(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled) {
+	// The background is completely covered by OnPaint, so erasing here would only cause
+	// flickering (a full black frame on every resize step) and, in some cases, a stale
+	// black frame that is not replaced until the next unrelated repaint (e.g. when
+	// toggling the EXIF display).
 	bHandled = TRUE;
 	return TRUE;
 }
@@ -2303,12 +2316,49 @@ void CMainDlg::ExecuteCommand(int nCommand) {
 LONG CMainDlg::SetCurrentWindowStyle() {
 	LONG currentStyle = this->GetWindowLongW(GWL_STYLE);
 	LONG visibleStyle = currentStyle & WS_VISIBLE;
+	LONG oldStyle;
 	if (!m_bWindowBorderless) {
-		return this->SetWindowLongW(GWL_STYLE, currentStyle | WS_OVERLAPPEDWINDOW | visibleStyle);
+		oldStyle = this->SetWindowLongW(GWL_STYLE, currentStyle | WS_OVERLAPPEDWINDOW | visibleStyle);
 	} else {
-		return this->SetWindowLongW(GWL_STYLE, (currentStyle & ~WS_OVERLAPPEDWINDOW) | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | visibleStyle);  // lose resizing
+		oldStyle = this->SetWindowLongW(GWL_STYLE, (currentStyle & ~WS_OVERLAPPEDWINDOW) | WS_MINIMIZEBOX | WS_MAXIMIZEBOX | visibleStyle);  // lose resizing
 		// just doing (& ~WS_CAPTION) leads to having a sliver of white bar on top but allows for resizing
 	}
+	// the title bar is only themed when it is actually shown, the borderless mode is not affected
+	ApplyTitleBarTheme();
+	return oldStyle;
+}
+
+// Colors the standard title bar with the color of the client area background so that the
+// window looks like one single surface. This is the same approach as used by modern Windows
+// applications, it keeps the native frame (smooth resizing, snap layouts, shadows, etc.).
+// Only the attributes supported by the running Windows version are applied, the others fail
+// silently, so this is safe to call on Windows 7 and later.
+void CMainDlg::ApplyTitleBarTheme() {
+	if (m_bWindowBorderless || m_bFullScreenMode) {
+		return; // no title bar is drawn
+	}
+
+	CSettingsProvider& sp = CSettingsProvider::This();
+	COLORREF backColor = sp.ColorBackground();
+	if (backColor == 0) {
+		backColor = RGB(0, 0, 1); // same workaround for the nVidia driver bug as used when painting
+	}
+	bool bDarkCaption = GetColorLuminance(backColor) < 0.5;
+	// use the GUI color for the title text when it has enough contrast, otherwise fall back to black or white
+	COLORREF guiColor = sp.ColorGUI();
+	COLORREF textColor = (bDarkCaption == (GetColorLuminance(guiColor) >= 0.5)) ?
+		guiColor : (bDarkCaption ? RGB(255, 255, 255) : RGB(0, 0, 0));
+
+	BOOL bDarkMode = bDarkCaption ? TRUE : FALSE;
+	if (FAILED(::DwmSetWindowAttribute(m_hWnd, DWM_ATTR_USE_IMMERSIVE_DARK_MODE, &bDarkMode, sizeof(bDarkMode)))) {
+		// Windows 10 versions before 1903 use a different attribute number
+		::DwmSetWindowAttribute(m_hWnd, DWM_ATTR_USE_IMMERSIVE_DARK_MODE_OLD, &bDarkMode, sizeof(bDarkMode));
+	}
+
+	// setting an explicit caption color is only supported by Windows 11, older versions ignore it
+	::DwmSetWindowAttribute(m_hWnd, DWM_ATTR_CAPTION_COLOR, &backColor, sizeof(backColor));
+	::DwmSetWindowAttribute(m_hWnd, DWM_ATTR_TEXT_COLOR, &textColor, sizeof(textColor));
+	::DwmSetWindowAttribute(m_hWnd, DWM_ATTR_BORDER_COLOR, &backColor, sizeof(backColor));
 }
 
 void CMainDlg::ExploreFile() {
